@@ -8,22 +8,18 @@ from sklearn.model_selection import train_test_split
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 import pickle
 import itertools
 import datetime
-
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import Model, load_model
-
 from keras.layers import Input, Embedding, LSTM, Merge
 import keras.backend as K
 from keras.optimizers import Adadelta
-from keras.callbacks import ModelCheckpoint
 
 PATH = '/u/xh3426/cs388/nlp-project/'
-TRAIN_CSV = PATH + 'data/train.csv'
-TEST_CSV = PATH + 'data/test.csv'
+TRAIN_CSV = PATH + 'data/train_fake.csv'
+TEST_CSV = PATH + 'data/train_fake.csv'
 EMBEDDING_FILE = PATH + 'data/GoogleNews-vectors-negative300.bin.gz'
 MODEL_FILE = PATH + 'data/MaLSTM/model.h5'
 HISTORY_FILE = PATH + 'data/MaLSTM/trainHistory.p'
@@ -122,7 +118,6 @@ for word, index in vocabulary.items():
 
 del word2vec
 
-
 max_seq_length = max(train_df.question1.map(lambda x: len(x)).max(),
                      train_df.question2.map(lambda x: len(x)).max(),
                      test_df.question1.map(lambda x: len(x)).max(),
@@ -217,6 +212,7 @@ plt.ylabel('Accuracy')
 plt.xlabel('Epoch')
 plt.legend(['Train', 'Validation'], loc='upper left')
 plt.savefig(PATH + "data/MaLSTM/accuracy.png")
+plt.clf()
 
 # Plot loss
 plt.plot(history['loss'])
@@ -226,6 +222,7 @@ plt.ylabel('Loss')
 plt.xlabel('Epoch')
 plt.legend(['Train', 'Validation'], loc='upper right')
 plt.savefig(PATH + "data/MaLSTM/loss.png")
+plt.clf()
 
 malstm = load_model(MODEL_FILE)
 malstm_predict = pickle.load(open(PRIDICT_FILE, "rb"))
