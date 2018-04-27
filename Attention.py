@@ -5,26 +5,37 @@ from gensim.models import KeyedVectors
 import re
 from nltk.corpus import stopwords
 from sklearn.model_selection import train_test_split
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 import pickle
 import itertools
 import datetime
+import os
 
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import Model, load_model
-
-from keras.layers import Input, Embedding, LSTM, Merge, Bidirectional, Dense
+from keras.layers import Input, Embedding, LSTM, Merge, Bidirectional, Dense, Activation, Flatten
+from keras.layers import dot, subtract, multiply, concatenate
 import keras.backend as K
 from keras.optimizers import Adadelta
-from keras.callbacks import ModelCheckpoint
 
-TRAIN_CSV = 'data/train_fake.csv'
-TEST_CSV = 'data/train_fake.csv'
-EMBEDDING_FILE = 'data/GoogleNews-vectors-negative300.bin.gz'
-MODEL_FILE = 'Attention/model.h5'
-HISTORY_FILE = 'Attention/trainHistory.p'
-PRIDICT_FILE = 'Attention/predict.p'
+
+PATH = '/u/xh3426/cs388/nlp-project/'
+TRAIN_CSV = PATH + 'data/train.csv'
+TEST_CSV = PATH + 'data/test.csv'
+EMBEDDING_FILE = PATH + 'data/GoogleNews-vectors-negative300.bin.gz'
+
+NUM = 1
+SAVEPATH = '/scratch/cluster/xh3426/nlp/Attention' + str(NUM)
+if not os.path.exists(SAVEPATH):
+    os.makedirs(SAVEPATH)
+MODEL_FILE = SAVEPATH + '/model.h5'
+HISTORY_FILE = SAVEPATH + '/trainHistory.p'
+PRIDICT_FILE = SAVEPATH + '/predict.p'
+LOG_FILE = SAVEPATH + '/log.p'
+ACC_PNG = SAVEPATH + '/accuracy.png'
+LOSS_PNG = SAVEPATH + '/loss.png'
 
 # Load training and test set
 train_df = pd.read_csv(TRAIN_CSV)
@@ -74,7 +85,6 @@ def text_to_word_list(text):
     return text
 
 
-
 # Prepare embedding
 questions_cols = ['question1', 'question2']
 vocabulary = dict()
@@ -84,23 +94,19 @@ word2vec = KeyedVectors.load_word2vec_format(EMBEDDING_FILE, binary=True)
 # Iterate over the questions only of both training and test datasets
 for dataset in [train_df, test_df]:
     for index, row in dataset.iterrows():
-
         # Iterate through the text of both questions of the row
         for question in questions_cols:
             q2n = []  # q2n -> question numbers representation
             for word in text_to_word_list(row[question]):
-
                 # Check for unwanted words
                 if word in stops and word not in word2vec.vocab:
                     continue
-
                 if word not in vocabulary:
                     vocabulary[word] = len(inverse_vocabulary)
                     q2n.append(len(inverse_vocabulary))
                     inverse_vocabulary.append(word)
                 else:
                     q2n.append(vocabulary[word])
-
             # Replace questions as word to question as number representation
             dataset.set_value(index, question, q2n)
 
@@ -125,7 +131,6 @@ max_seq_length = max(train_df.question1.map(lambda x: len(x)).max(),
 
 # Split to train validation
 validation_size = 40000
-validation_size = 10
 training_size = len(train_df) - validation_size
 
 X = train_df[questions_cols]
@@ -147,19 +152,25 @@ Y_validation = Y_validation.values
 for dataset, side in itertools.product([X_train, X_validation, X_test], ['left', 'right']):
     dataset[side] = pad_sequences(dataset[side], maxlen=max_seq_length)
 
-# Make sure everything is ok
-assert X_train['left'].shape == X_train['right'].shape
-assert len(X_train['left']) == len(Y_train)
 
 # Model variables
 n_hidden = 50
 n_attention = 50
 gradient_clipping_norm = 1.25
 batch_size = 64
-batch_size = 10
 n_epoch = 25
-n_epoch = 2
+ATTENTION_MODE = True
+MA_DISTANCE = True
 
+pickle.dump({
+    'n_hidden': 50,
+    'n_attention': 50,
+    'gradient_clipping_norm': 1.25,
+    'batch_size': 64,
+    'n_epoch': 25,
+    'ATTENTION_MODE': True,
+    'MA_DISTANCE': True
+}, open(LOG_FILE, "wb"))
 
 # The visible layer
 left_input = Input(shape=(max_seq_length,), dtype='int32')
@@ -177,27 +188,41 @@ shared_lstm = Bidirectional(LSTM(n_hidden, return_sequences=True))
 left_sequences = shared_lstm(encoded_left)
 right_sequences = shared_lstm(encoded_right)
 
-# attention layer
-Activation(activation="tanh")
-alpha = Dense(1, activation="softmax")
-Lambda(K.dot(H, alpha.T))([])
-Activation(activation="tanh")
-shared_attention_layer = Dense(n_attention, activation="tanh")
+def attention(inputs):
+    input_dim = int(inputs.shape[2])
+    if ATTENTION_MODE:
+        a = Dense(n_attention, activation='tanh',)(inputs)
+        a_probs = Dense(1, activation='softmax')(a)
+        output_attention_mul = dot([a_probs, inputs], axes=1)
+    else:
+        a = Activation(activation='tanh')(inputs)
+        a_probs = Dense(1, activation='softmax')(a)
+        output_attention_mul = dot([a_probs, inputs], axes=1)
+        output_attention_mul = Activation(activation="tanh")(output_attention_mul)
+    return output_attention_mul
 
-left_weights = shared_attention_layer(left_sequences)
-right_weights = shared_attention_layer(right_sequences)
+
+# attention layer
+left_output = Flatten()(attention(left_sequences))
+right_output = Flatten()(attention(right_sequences))
 
 # Calculates the distance as defined by the MaLSTM model
-malstm_distance = Merge(mode=lambda x: K.exp(-K.sum(K.abs(x[0]-x[1]), axis=1, keepdims=True)), output_shape=lambda x: (x[0][0], 1))([left_output, right_output])
+if MA_DISTANCE:
+    output = Merge(mode=lambda x: K.exp(-K.sum(K.abs(x[0]-x[1]), axis=1, keepdims=True)), output_shape=lambda x: (x[0][0], 1))([left_output, right_output])
+else:
+    differences = subtract([left_output, right_output])
+    square_diff = multiply([differences, differences])
+    input = concatenate([differences, square_diff])
+    output = Dense(1, activation='softmax')(input)
 
 # Pack it all up into a model
-malstm = Model([left_input, right_input], [left_output, right_output])
+malstm = Model([left_input, right_input], [output])
 
-print(malstm.predict([X_validation['left'], X_validation['right']]))
 # Adadelta optimizer, with gradient clipping by norm
 optimizer = Adadelta(clipnorm=gradient_clipping_norm)
 
 malstm.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
+
 
 # Start training
 training_start_time = time()
@@ -215,6 +240,7 @@ pickle.dump(malstm_trained.history, open(HISTORY_FILE, "wb"))
 del malstm_trained
 print("Training time finished.\n{} epochs in {}".format(n_epoch, datetime.timedelta(seconds=time()-training_start_time)))
 
+
 # Plot accuracy
 history = pickle.load(open(HISTORY_FILE, "rb"))
 plt.plot(history['acc'])
@@ -223,7 +249,8 @@ plt.title('Model Accuracy')
 plt.ylabel('Accuracy')
 plt.xlabel('Epoch')
 plt.legend(['Train', 'Validation'], loc='upper left')
-plt.show()
+plt.savefig(ACC_PNG)
+plt.clf()
 
 # Plot loss
 plt.plot(history['loss'])
@@ -232,7 +259,8 @@ plt.title('Model Loss')
 plt.ylabel('Loss')
 plt.xlabel('Epoch')
 plt.legend(['Train', 'Validation'], loc='upper right')
-plt.show()
+plt.savefig(LOSS_PNG)
+plt.clf()
 
 malstm = load_model(MODEL_FILE)
 malstm_predict = pickle.load(open(PRIDICT_FILE, "rb"))
