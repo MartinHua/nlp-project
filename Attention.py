@@ -26,7 +26,7 @@ TRAIN_CSV = PATH + 'data/train.csv'
 TEST_CSV = PATH + 'data/test.csv'
 EMBEDDING_FILE = PATH + 'data/GoogleNews-vectors-negative300.bin.gz'
 
-NUM = 1
+NUM = 5
 SAVEPATH = '/scratch/cluster/xh3426/nlp/Attention' + str(NUM)
 if not os.path.exists(SAVEPATH):
     os.makedirs(SAVEPATH)
@@ -160,7 +160,7 @@ gradient_clipping_norm = 1.25
 batch_size = 64
 n_epoch = 25
 ATTENTION_MODE = True
-MA_DISTANCE = True
+MA_DISTANCE = False
 
 pickle.dump({
     'n_hidden': 50,
@@ -169,7 +169,7 @@ pickle.dump({
     'batch_size': 64,
     'n_epoch': 25,
     'ATTENTION_MODE': True,
-    'MA_DISTANCE': True
+    'MA_DISTANCE': False
 }, open(LOG_FILE, "wb"))
 
 # The visible layer
