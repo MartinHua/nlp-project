@@ -15,27 +15,41 @@ import os
 
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import Model, load_model
-from keras.layers import Input, Embedding, LSTM, Merge, Bidirectional, Dense, Activation, Flatten
-from keras.layers import dot, subtract, multiply, concatenate
+from keras.layers import Input, Embedding, LSTM, Merge, Bidirectional, Dense, Activation, Flatten, Dropout, BatchNormalization
+from keras.layers import dot, subtract, multiply, concatenate, add
 import keras.backend as K
 from keras.optimizers import Adadelta
 
+NUM = 6
+GoogleNews = True
+n_hidden = 50
+n_attention = 50
+n_MLP = 150
+gradient_clipping_norm = 1.25
+batch_size = 64
+n_epoch = 40
+ATTENTION_MODE = False
+MA_DISTANCE = False
 
 PATH = '/u/xh3426/cs388/nlp-project/'
 TRAIN_CSV = PATH + 'data/train.csv'
 TEST_CSV = PATH + 'data/test.csv'
-EMBEDDING_FILE = PATH + 'data/GoogleNews-vectors-negative300.bin.gz'
+if GoogleNews:
+    EMBEDDING_FILE = PATH + 'data/GoogleNews-vectors-negative300.bin.gz'
 
-NUM = 5
+
 SAVEPATH = '/scratch/cluster/xh3426/nlp/Attention' + str(NUM)
 if not os.path.exists(SAVEPATH):
     os.makedirs(SAVEPATH)
+PNGSAVEPATH = PATH + 'Attention' + str(NUM)
+if not os.path.exists(PNGSAVEPATH):
+    os.makedirs(PNGSAVEPATH)
 MODEL_FILE = SAVEPATH + '/model.h5'
 HISTORY_FILE = SAVEPATH + '/trainHistory.p'
 PRIDICT_FILE = SAVEPATH + '/predict.p'
 LOG_FILE = SAVEPATH + '/log.p'
-ACC_PNG = SAVEPATH + '/accuracy.png'
-LOSS_PNG = SAVEPATH + '/loss.png'
+ACC_PNG = PNGSAVEPATH + '/accuracy.png'
+LOSS_PNG = PNGSAVEPATH + '/loss.png'
 
 # Load training and test set
 train_df = pd.read_csv(TRAIN_CSV)
@@ -154,22 +168,18 @@ for dataset, side in itertools.product([X_train, X_validation, X_test], ['left',
 
 
 # Model variables
-n_hidden = 50
-n_attention = 50
-gradient_clipping_norm = 1.25
-batch_size = 64
-n_epoch = 25
-ATTENTION_MODE = True
-MA_DISTANCE = False
+
 
 pickle.dump({
-    'n_hidden': 50,
-    'n_attention': 50,
-    'gradient_clipping_norm': 1.25,
-    'batch_size': 64,
-    'n_epoch': 25,
-    'ATTENTION_MODE': True,
-    'MA_DISTANCE': False
+    'n_hidden': n_hidden,
+    'n_attention': n_attention,
+    'gradient_clipping_norm': gradient_clipping_norm,
+    'batch_size': batch_size,
+    'n_epoch': n_epoch,
+    'ATTENTION_MODE': ATTENTION_MODE,
+    'MA_DISTANCE': MA_DISTANCE,
+    "n_MLP": n_MLP,
+    'EMBEDDING': GoogleNews
 }, open(LOG_FILE, "wb"))
 
 # The visible layer
@@ -191,9 +201,10 @@ right_sequences = shared_lstm(encoded_right)
 def attention(inputs):
     input_dim = int(inputs.shape[2])
     if ATTENTION_MODE:
-        a = Dense(n_attention, activation='tanh',)(inputs)
+        a = Dense(n_attention, activation='tanh')(inputs)
         a_probs = Dense(1, activation='softmax')(a)
         output_attention_mul = dot([a_probs, inputs], axes=1)
+        output_attention_mul = Activation(activation="tanh")(output_attention_mul)
     else:
         a = Activation(activation='tanh')(inputs)
         a_probs = Dense(1, activation='softmax')(a)
@@ -210,10 +221,14 @@ right_output = Flatten()(attention(right_sequences))
 if MA_DISTANCE:
     output = Merge(mode=lambda x: K.exp(-K.sum(K.abs(x[0]-x[1]), axis=1, keepdims=True)), output_shape=lambda x: (x[0][0], 1))([left_output, right_output])
 else:
+    addition = add([left_output, right_output])
     differences = subtract([left_output, right_output])
     square_diff = multiply([differences, differences])
-    input = concatenate([differences, square_diff])
-    output = Dense(1, activation='softmax')(input)
+    merged = concatenate([addition, square_diff])
+    merged = Dense(n_MLP, activation="relu")(merged)
+    merged = Dropout(0.2)(merged)
+    merged = BatchNormalization()(merged)
+    output = Dense(1, activation='sigmoid')(merged)
 
 # Pack it all up into a model
 malstm = Model([left_input, right_input], [output])
@@ -230,16 +245,17 @@ training_start_time = time()
 malstm_trained = malstm.fit([X_train['left'], X_train['right']], Y_train, batch_size=batch_size, epochs=n_epoch,
                             validation_data=([X_validation['left'], X_validation['right']], Y_validation))
 
-malstm_predict = malstm.predict([X_test['left'], X_test['right']])
-pickle.dump(malstm_predict, open(PRIDICT_FILE, "wb"))
+# malstm_predict = malstm.predict([X_test['left'], X_test['right']])
+# pickle.dump(malstm_predict, open(PRIDICT_FILE, "wb"))
+# del malstm_predict
+
+print("Training time finished.\n{} epochs in {}".format(n_epoch, datetime.timedelta(seconds=time()-training_start_time)))
+
 malstm.save(MODEL_FILE)
 del malstm
-del malstm_predict
 
 pickle.dump(malstm_trained.history, open(HISTORY_FILE, "wb"))
 del malstm_trained
-print("Training time finished.\n{} epochs in {}".format(n_epoch, datetime.timedelta(seconds=time()-training_start_time)))
-
 
 # Plot accuracy
 history = pickle.load(open(HISTORY_FILE, "rb"))
@@ -262,6 +278,6 @@ plt.legend(['Train', 'Validation'], loc='upper right')
 plt.savefig(LOSS_PNG)
 plt.clf()
 
-malstm = load_model(MODEL_FILE)
-malstm_predict = pickle.load(open(PRIDICT_FILE, "rb"))
-print(malstm_predict)
+# malstm = load_model(MODEL_FILE)
+# malstm_predict = pickle.load(open(PRIDICT_FILE, "rb"))
+# print(malstm_predict)
