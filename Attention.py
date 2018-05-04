@@ -12,6 +12,8 @@ import pickle
 import itertools
 import datetime
 import os
+from zipfile import ZipFile
+from os.path import exists
 
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import Model, load_model
@@ -20,22 +22,27 @@ from keras.layers import dot, subtract, multiply, concatenate, add
 import keras.backend as K
 from keras.optimizers import Adadelta
 
-NUM = 6
+NUM = 3
 GoogleNews = True
 n_hidden = 50
 n_attention = 50
-n_MLP = 150
+n_MLP = 100
 gradient_clipping_norm = 1.25
 batch_size = 64
-n_epoch = 40
-ATTENTION_MODE = False
-MA_DISTANCE = False
+n_epoch = 30
+ATTENTION_MODE = True
+MA_DISTANCE = True
 
 PATH = '/u/xh3426/cs388/nlp-project/'
 TRAIN_CSV = PATH + 'data/train.csv'
 TEST_CSV = PATH + 'data/test.csv'
 if GoogleNews:
-    EMBEDDING_FILE = PATH + 'data/GoogleNews-vectors-negative300.bin.gz'
+    EMBEDDING_FILE_PATH = PATH + 'data/GoogleNews-vectors-negative300.bin.gz'
+else:
+    EMBEDDING_FILE_PATH = '/scratch/cluster/xh3426/nlp/glove.840B.300d.txt'
+    if not exists(EMBEDDING_FILE_PATH):
+        zipfile = ZipFile('/scratch/cluster/xh3426/nlp/glove.840B.300d.zip')
+        zipfile.extract("glove.840B.300d.txt", path='/scratch/cluster/xh3426/nlp/')
 
 
 SAVEPATH = '/scratch/cluster/xh3426/nlp/Attention' + str(NUM)
@@ -47,9 +54,23 @@ if not os.path.exists(PNGSAVEPATH):
 MODEL_FILE = SAVEPATH + '/model.h5'
 HISTORY_FILE = SAVEPATH + '/trainHistory.p'
 PRIDICT_FILE = SAVEPATH + '/predict.p'
-LOG_FILE = SAVEPATH + '/log.p'
+LOG_FILE = PNGSAVEPATH + '/log.p'
 ACC_PNG = PNGSAVEPATH + '/accuracy.png'
 LOSS_PNG = PNGSAVEPATH + '/loss.png'
+
+
+pickle.dump({
+    'n_hidden': n_hidden,
+    'n_attention': n_attention,
+    'gradient_clipping_norm': gradient_clipping_norm,
+    'batch_size': batch_size,
+    'n_epoch': n_epoch,
+    'ATTENTION_MODE': ATTENTION_MODE,
+    'MA_DISTANCE': MA_DISTANCE,
+    "n_MLP": n_MLP,
+    'EMBEDDING': GoogleNews
+}, open(LOG_FILE, "wb"))
+
 
 # Load training and test set
 train_df = pd.read_csv(TRAIN_CSV)
@@ -103,7 +124,7 @@ def text_to_word_list(text):
 questions_cols = ['question1', 'question2']
 vocabulary = dict()
 inverse_vocabulary = ['<unk>']  # '<unk>' will never be used, it is only a placeholder for the [0, 0, ....0] embedding
-word2vec = KeyedVectors.load_word2vec_format(EMBEDDING_FILE, binary=True)
+
 
 # Iterate over the questions only of both training and test datasets
 for dataset in [train_df, test_df]:
@@ -113,7 +134,7 @@ for dataset in [train_df, test_df]:
             q2n = []  # q2n -> question numbers representation
             for word in text_to_word_list(row[question]):
                 # Check for unwanted words
-                if word in stops and word not in word2vec.vocab:
+                if word in stops:
                     continue
                 if word not in vocabulary:
                     vocabulary[word] = len(inverse_vocabulary)
@@ -130,12 +151,25 @@ embeddings = 1 * np.random.randn(len(vocabulary) + 1, embedding_dim)  # This wil
 embeddings[0] = 0  # So that the padding will be ignored
 
 
-# Build the embedding matrix
-for word, index in vocabulary.items():
-    if word in word2vec.vocab:
-        embeddings[index] = word2vec.word_vec(word)
-
-del word2vec
+if GoogleNews:
+    word2vec = KeyedVectors.load_word2vec_format(EMBEDDING_FILE_PATH, binary=True)
+    for word, index in vocabulary.items():
+        if word in word2vec.vocab:
+            embeddings[index] = word2vec.word_vec(word)
+    del word2vec
+else:
+    embeddings_index = {}
+    with open(EMBEDDING_FILE_PATH, encoding='utf-8') as f:
+        for line in f:
+            values = line.split(' ')
+            word = values[0]
+            embedding = np.asarray(values[1:], dtype='float32')
+            embeddings_index[word] = embedding
+    for word, index in vocabulary.items():
+        embedding_vector = embeddings_index.get(word)
+        if embedding_vector is not None:
+            embeddings[index] = embedding_vector
+    del embeddings_index
 
 
 max_seq_length = max(train_df.question1.map(lambda x: len(x)).max(),
@@ -168,19 +202,6 @@ for dataset, side in itertools.product([X_train, X_validation, X_test], ['left',
 
 
 # Model variables
-
-
-pickle.dump({
-    'n_hidden': n_hidden,
-    'n_attention': n_attention,
-    'gradient_clipping_norm': gradient_clipping_norm,
-    'batch_size': batch_size,
-    'n_epoch': n_epoch,
-    'ATTENTION_MODE': ATTENTION_MODE,
-    'MA_DISTANCE': MA_DISTANCE,
-    "n_MLP": n_MLP,
-    'EMBEDDING': GoogleNews
-}, open(LOG_FILE, "wb"))
 
 # The visible layer
 left_input = Input(shape=(max_seq_length,), dtype='int32')
