@@ -12,6 +12,7 @@ import pickle
 import itertools
 import datetime
 import os
+import sys
 from zipfile import ZipFile
 from os.path import exists
 
@@ -22,16 +23,16 @@ from keras.layers import dot, subtract, multiply, concatenate, add
 import keras.backend as K
 from keras.optimizers import Adadelta
 
-NUM = 3
-GoogleNews = True
+NUM = int(sys.argv[1])
+GoogleNews = bool(sys.argv[2])
 n_hidden = 50
 n_attention = 50
 n_MLP = 100
 gradient_clipping_norm = 1.25
 batch_size = 64
 n_epoch = 30
-ATTENTION_MODE = True
-MA_DISTANCE = True
+ATTENTION_MODE = bool(sys.argv[3])
+MA_DISTANCE = bool(sys.argv[4])
 
 PATH = '/u/xh3426/cs388/nlp-project/'
 TRAIN_CSV = PATH + 'data/train.csv'
