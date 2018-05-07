@@ -24,15 +24,15 @@ import keras.backend as K
 from keras.optimizers import Adadelta
 
 NUM = int(sys.argv[1])
-GoogleNews = bool(sys.argv[2])
+GoogleNews = bool(int(sys.argv[2]))
 n_hidden = 50
 n_attention = 50
 n_MLP = 100
 gradient_clipping_norm = 1.25
 batch_size = 64
 n_epoch = 30
-ATTENTION_MODE = bool(sys.argv[3])
-MA_DISTANCE = bool(sys.argv[4])
+ATTENTION_MODE = bool(int(sys.argv[3]))
+MA_DISTANCE = bool(int(sys.argv[4]))
 
 PATH = '/u/xh3426/cs388/nlp-project/'
 TRAIN_CSV = PATH + 'data/train.csv'
