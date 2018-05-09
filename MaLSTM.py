@@ -22,12 +22,13 @@ from keras.layers import dot, subtract, multiply, concatenate, add
 import keras.backend as K
 from keras.optimizers import Adadelta
 
-NUM = 1
-GoogleNews = False
+NUM = 2
+GoogleNews = True
 n_hidden = 50
 gradient_clipping_norm = 1.25
 batch_size = 64
 n_epoch = 30
+MA_DISTANCE = False
 
 PATH = '/u/xh3426/cs388/nlp-project/'
 TRAIN_CSV = PATH + 'data/train.csv'
@@ -48,7 +49,7 @@ PNGSAVEPATH = PATH + 'MaLSTM' + str(NUM)
 if not os.path.exists(PNGSAVEPATH):
     os.makedirs(PNGSAVEPATH)
 MODEL_FILE = SAVEPATH + '/model.h5'
-HISTORY_FILE = SAVEPATH + '/trainHistory.p'
+HISTORY_FILE = PNGSAVEPATH + '/trainHistory.p'
 PRIDICT_FILE = SAVEPATH + '/predict.p'
 LOG_FILE = PNGSAVEPATH + '/log.p'
 ACC_PNG = PNGSAVEPATH + '/accuracy.png'
@@ -60,7 +61,8 @@ pickle.dump({
     'gradient_clipping_norm': gradient_clipping_norm,
     'batch_size': batch_size,
     'n_epoch': n_epoch,
-    'EMBEDDING': GoogleNews
+    'EMBEDDING': GoogleNews,
+    'MA_DISTANCE': MA_DISTANCE
 }, open(LOG_FILE, "wb"))
 
 
@@ -217,9 +219,18 @@ left_output = left_sequences
 right_output = right_sequences
 
 # Calculates the distance as defined by the MaLSTM model
-output = Merge(mode=lambda x: K.exp(-K.sum(K.abs(x[0]-x[1]), axis=1, keepdims=True)), output_shape=lambda x: (x[0][0], 1))([left_output, right_output])
-
-
+if MA_DISTANCE:
+    output = Merge(mode=lambda x: K.exp(-K.sum(K.abs(x[0]-x[1]), axis=1, keepdims=True)), output_shape=lambda x: (x[0][0], 1))([left_output, right_output])
+else:
+    addition = add([left_output, right_output])
+    differences = subtract([left_output, right_output])
+    square_diff = multiply([differences, differences])
+    merged = concatenate([addition, square_diff])
+    merged = Dense(n_MLP, activation="relu")(merged)
+    merged = Dropout(0.2)(merged)
+    merged = BatchNormalization()(merged)
+    output = Dense(1, activation='sigmoid')(merged)
+    
 # Pack it all up into a model
 malstm = Model([left_input, right_input], [output])
 
