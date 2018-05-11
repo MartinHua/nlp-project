@@ -22,14 +22,14 @@ from keras.layers import dot, subtract, multiply, concatenate, add
 import keras.backend as K
 from keras.optimizers import Adadelta
 
-NUM = 2
-GoogleNews = True
+NUM = 3
+GoogleNews = False
 n_hidden = 50
 gradient_clipping_norm = 1.25
 batch_size = 64
 n_epoch = 30
 MA_DISTANCE = False
-
+n_MLP = 100
 PATH = '/u/xh3426/cs388/nlp-project/'
 TRAIN_CSV = PATH + 'data/train.csv'
 TEST_CSV = PATH + 'data/test.csv'
@@ -62,7 +62,8 @@ pickle.dump({
     'batch_size': batch_size,
     'n_epoch': n_epoch,
     'EMBEDDING': GoogleNews,
-    'MA_DISTANCE': MA_DISTANCE
+    'MA_DISTANCE': MA_DISTANCE,
+    'n_MLP': n_MLP
 }, open(LOG_FILE, "wb"))
 
 
